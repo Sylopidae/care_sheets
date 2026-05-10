@@ -871,4 +871,80 @@ server <- function(input, output, session) {
   observeEvent(input$btn_sync_only,     { do_sync(regen_first=FALSE) })
 }
 
+# ============================================================
+#  Spider Farm v8.7  –  app.R
+#  Update: Physical Vial Label Integration (May 2026)
+# ============================================================
+
+# ... [Keep existing library imports and directory layout from v8.6] ...
+
+# ── NEW: Vial Label Helper ───────────────────────────────────
+generate_vial_qr <- function(spider_id, species, base_url) {
+  if (is.null(base_url) || nchar(trimws(base_url)) == 0) return(NULL)
+  
+  # Map specifically to the GitHub Pages location for the caresheet
+  file_slug <- tolower(gsub("[^a-zA-Z0-9]+", "_", trimws(species)))
+  target_url <- paste0(sub("/$", "", trimws(base_url)), "/sheets/", spider_id, "_", file_slug, ".html")
+  
+  qr_path <- file.path(QRCODE_DIR, paste0("vial_", spider_id, "_qr.png"))
+  
+  # Higher resolution for small physical prints
+  png(qr_path, width = 450, height = 450, bg = "white")
+  plot(qrcode::qr_code(target_url))
+  dev.off()
+  
+  qr_path
+}
+
+# ── UI Enhancements ─────────────────────────────────────────
+# Add "Labels" to the sidebarMenu
+# menuItem("Vial Labels", tabName = "labels", icon = icon("tag"))
+
+# Add this tabItem to tabItems:
+tabItem(tabName = "labels",
+        fluidRow(
+          box(title = "Print Vial Labels", width = 5, status = "info",
+              p("Generate high-resolution QR codes to affix to spider vials."),
+              numericInput("lab_id", "Spider ID", value = NA, min = 1),
+              actionButton("btn_gen_lab", "Generate Vial QR", 
+                           icon = icon("qrcode"), class = "btn-info btn-lg"),
+              br(), br(), verbatimTextOutput("out_lab_status")),
+          box(title = "Label Preview", width = 7, status = "primary",
+              uiOutput("lab_preview_ui"))
+        )
+)
+
+# ── Server Enhancements ─────────────────────────────────────
+# Inside server function:
+
+observeEvent(input$btn_gen_lab, {
+  req(!is.na(input$lab_id))
+  idx <- which(as.integer(rv$df$id) == input$lab_id)
+  
+  if (length(idx) != 1) {
+    output$out_lab_status <- renderText("Error: Spider ID not found.")
+    return()
+  }
+  
+  row <- rv$df[idx, ]
+  base_url <- rv$cfg$pages_base_url %||% ""
+  
+  if (nchar(base_url) == 0) {
+    output$out_lab_status <- renderText("Error: Configure GitHub Pages URL in Sync tab first.")
+    return()
+  }
+  
+  path <- generate_vial_qr(row$id, row$species, base_url)
+  output$out_lab_status <- renderText(paste0("\u2714 Label ready for ID ", row$id))
+  
+  output$lab_preview_ui <- renderUI({
+    b64 <- file_to_base64(path)
+    tags$div(style = "text-align:center; padding: 20px; border: 2px dashed #ccc;",
+             tags$h3(row$species),
+             tags$img(src = b64, style = "width:250px; image-rendering: pixelated;"),
+             tags$p(strong("ID: "), row$id, " | ", strong("Sex: "), row$sex),
+             tags$small("Right-click to save image for label printing."))
+  })
+})
+
 shinyApp(ui=ui, server=server)
