@@ -6,5 +6,3 @@ Species: Brachypelma hamorii
 • Feeding schedule: Twice Weekly
 • Growth rate: Slow
 • Temperament: Docile
-
-care_notes:

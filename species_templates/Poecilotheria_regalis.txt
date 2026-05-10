@@ -1,4 +1,4 @@
-Species: Poecilotheria metallica
+Species: Poecilotheria regalis
 
 • Humidity: Ambient (~50%)
 • Temperature: ~72°F

@@ -1,3 +1,9 @@
 "id","species","sex","dls_in","notes","moult_photo"
-"Bh1F","Brachypelma hamorii","Female",2,"","moults/Bh1F_latest.jpeg"
+"Bh1F","Brachypelma hamorii","Female",2,NA,"moults/Bh1F_latest.jpeg"
 "Pm1F","Poecilotheria metallica","Female",4,NA,NA
+"Bh2M","Brachypelma hamorii","Male",2,"",NA
+"Cc1F","Chromatopelma cyaneopubescens","Female",4,"",NA
+"Pr1","Poecilotheria regalis","Unknown",1,"",NA
+"Pr2","Poecilotheria regalis","Unknown",1,"",NA
+"Pr3","Poecilotheria regalis","Unknown",1,"",NA
+"Dp1","Davus pentaloris","Unknown",0.5,"",NA
