@@ -1,0 +1,10 @@
+# Species: Poecilotheria metallica
+"
+• Humidity: Ambient (~50%)
+• Temperature: ~72°F
+• Habit: Arboreal
+• Feeding schedule: Twice Weekly
+• Growth rate: Fast
+• Temperament: Nervous
+"
+# care_notes =

@@ -1,14 +1,11 @@
 # Species: Brachypelma hamorii
 accent_color = darkgreen
-care_notes = "
-• Humidity: __%
-• Temperature: __°F
-• Enclosure size: __
-• Substrate depth: __
-• Hide recommended: Yes/No
-• Feeding schedule: __
-• Growth rate: __
-• Temperament: __
-• Notes: __
 "
-
+• Humidity: Ambient (~50%)
+• Temperature: ~72°F
+• Habit: Terrestrial
+• Feeding schedule: Twice Weekly
+• Growth rate: Slow
+• Temperament: Docile
+"
+care_notes =
