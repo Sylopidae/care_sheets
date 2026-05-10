@@ -1,11 +1,10 @@
-# Species: Brachypelma hamorii
-accent_color = darkgreen
-"
+Species: Brachypelma hamorii
+
 • Humidity: Ambient (~50%)
 • Temperature: ~72°F
 • Habit: Terrestrial
 • Feeding schedule: Twice Weekly
 • Growth rate: Slow
 • Temperament: Docile
-"
-care_notes =
+
+care_notes:
