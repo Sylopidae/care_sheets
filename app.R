@@ -1,6 +1,6 @@
 # ============================================================
-#  Spider Farm v9.3 – Bug Fix & Stability Edition
-#  Fixes: generate_qr_png scoping error & crash protection
+#  Spider Farm v9.4 – The Growth Edition
+#  Features: Dedicated Moult Tracking & Auto-DLS Updates
 # ============================================================
 
 library(shiny)
@@ -11,18 +11,19 @@ library(qrcode)
 library(base64enc)
 
 # ── Directory Setup ──────────────────────────────────────────
-DATA_FILE     <- "spider_inventory.csv"
-FEED_FILE     <- "feeding_history.csv"
-CONFIG_FILE   <- "spider_config.rds"
-CARESHEET_DIR <- "sheets"
-QRCODE_DIR    <- "qrcodes"
-MOULT_DIR     <- "moults"
+DATA_FILE      <- "spider_inventory.csv"
+FEED_FILE      <- "feeding_history.csv"
+MOULT_LOG_FILE <- "moult_history.csv" # New tracking file
+CONFIG_FILE    <- "spider_config.rds"
+CARESHEET_DIR  <- "sheets"
+QRCODE_DIR     <- "qrcodes"
+MOULT_DIR      <- "moults"
 
 for (d in c(CARESHEET_DIR, QRCODE_DIR, MOULT_DIR, "species_templates")) {
   if (!dir.exists(d)) dir.create(d, recursive = TRUE)
 }
 
-# ── Helper Functions (Defined FIRST to avoid Scoping Errors) ──
+# ── Helper Functions ──────────────────────────────────────────
 
 load_config <- function() {
   if (file.exists(CONFIG_FILE)) readRDS(CONFIG_FILE)
@@ -39,30 +40,38 @@ img_to_b64 <- function(path) {
   paste0("data:image/", ext, ";base64,", base64enc::base64encode(path))
 }
 
-# THE FUNCTION THAT WAS CAUSING THE CRASH
 generate_qr_png <- function(spider_id, species, base_url) {
   base_url <- sub("/$", "", trimws(base_url))
-  # Construct the exact URL that will be live on GitHub Pages
   target_url <- paste0(base_url, "/", CARESHEET_DIR, "/", spider_id, "_", slug(species), ".html")
-  
   path <- file.path(QRCODE_DIR, paste0(spider_id, "_qr.png"))
   
-  # Generate and save PNG
-  png(path, width = 300, height = 300)
-  plot(qrcode::qr_code(target_url))
-  dev.off()
+  # Open PNG device with extra height for the label
+  png(path, width = 300, height = 350) # Increased height from 300 to 350
   
+  # Set margins: bottom margin is larger to fit text
+  par(mar = c(4, 0, 0, 0)) 
+  
+  # Plot the QR code
+  plot(qrcode::qr_code(target_url))
+  
+  # Add the Label (ID and Species)
+  # 'line' controls vertical placement, 'cex' controls font size
+  mtext(paste0("ID: ", spider_id), side = 1, line = 1, cex = 1.5, font = 2)
+  mtext(species, side = 1, line = 2.5, cex = 1.2)
+  
+  dev.off()
   return(path)
 }
 
 # ── UI ───────────────────────────────────────────────────────
 ui <- dashboardPage(
   skin = "black",
-  dashboardHeader(title = "Spider Farm v9.3"),
+  dashboardHeader(title = "Spider Farm v9.4"),
   dashboardSidebar(
     sidebarMenu(
       menuItem("Inventory", tabName = "inventory", icon = icon("edit")),
       menuItem("Feeding Logs", tabName = "feedings", icon = icon("list-ol")),
+      menuItem("Moult Tracker", tabName = "moults", icon = icon("expand-arrows-alt")), # New Tab
       menuItem("Caresheets", tabName = "sheets", icon = icon("qrcode")),
       menuItem("GitHub Sync", tabName = "github", icon = icon("github"))
     )
@@ -75,8 +84,8 @@ ui <- dashboardPage(
                     textInput("inv_id", "Specimen ID"),
                     textInput("inv_species", "Species"),
                     selectInput("inv_sex", "Sex", choices = c("Unknown", "Female", "Male", "Unconfirmed")),
-                    numericInput("inv_dls", "DLS (Inches)", 0, step = 0.1),
-                    fileInput("moult_upload", "Upload Moult Photo"),
+                    numericInput("inv_dls", "Current DLS (Inches)", 0, step = 0.1),
+                    fileInput("moult_upload", "Upload Photo"),
                     textAreaInput("inv_notes", "Notes"),
                     actionButton("btn_save", "Save/Update", class = "btn-success", width="100%")),
                 box(title = "Inventory List", width = 8, DTOutput("tbl_spiders"))
@@ -91,6 +100,18 @@ ui <- dashboardPage(
                     textInput("feed_type", "Prey Type"),
                     actionButton("btn_log_feed", "Add Entry", class = "btn-warning")),
                 box(title = "History", width = 8, DTOutput("tbl_feeds"))
+              )
+      ),
+      # --- NEW MOULT TRACKER TAB ---
+      tabItem(tabName = "moults",
+              fluidRow(
+                box(title = "Record Moult", width = 4, status = "info",
+                    textInput("moult_id", "Specimen ID"),
+                    dateInput("moult_date", "Date of Moult", value = Sys.Date()),
+                    numericInput("moult_new_dls", "New DLS (Inches)", 0, step = 0.1),
+                    p(tags$small("Note: This will update the primary inventory DLS.")),
+                    actionButton("btn_log_moult", "Record Moult", class = "btn-info")),
+                box(title = "Moult History", width = 8, DTOutput("tbl_moults"))
               )
       ),
       tabItem(tabName = "sheets",
@@ -115,6 +136,7 @@ server <- function(input, output, session) {
   rv <- reactiveValues(
     df = if(file.exists(DATA_FILE)) read.csv(DATA_FILE, stringsAsFactors=F) else data.frame(id=character(), species=character(), sex=character(), dls_in=numeric(), notes=character(), moult_photo=character(), stringsAsFactors=F),
     feeds = if(file.exists(FEED_FILE)) read.csv(FEED_FILE, stringsAsFactors=F) else data.frame(),
+    moults = if(file.exists(MOULT_LOG_FILE)) read.csv(MOULT_LOG_FILE, stringsAsFactors=F) else data.frame(id=character(), date=character(), dls_at_moult=numeric(), stringsAsFactors=F),
     cfg = load_config()
   )
   
@@ -125,12 +147,18 @@ server <- function(input, output, session) {
     datatable(rv$feeds %>% filter(id == input$feed_id), rownames=F) 
   })
   
+  # Render Moult History
+  output$tbl_moults <- renderDT({
+    req(input$moult_id)
+    datatable(rv$moults %>% filter(id == input$moult_id) %>% arrange(desc(date)), rownames=F)
+  })
+  
   observeEvent(input$btn_save, {
     req(input$inv_id, input$inv_species)
     photo_path <- NA
     if (!is.null(input$moult_upload)) {
       ext <- tools::file_ext(input$moult_upload$datapath)
-      photo_path <- file.path(MOULT_DIR, paste0(input$inv_id, "_moult.", ext))
+      photo_path <- file.path(MOULT_DIR, paste0(input$inv_id, "_latest.", ext))
       file.copy(input$moult_upload$datapath, photo_path, overwrite = TRUE)
     } else {
       existing <- rv$df %>% filter(id == input$inv_id) %>% pull(moult_photo)
@@ -151,7 +179,25 @@ server <- function(input, output, session) {
     showNotification("Feeding Logged.")
   })
   
-  # --- STABLE LOGO & BRANDING GENERATOR (ONLY ONE VERSION) ---
+  # Logic for Logging a Moult
+  observeEvent(input$btn_log_moult, {
+    req(input$moult_id, input$moult_new_dls)
+    
+    # 1. Update Moult History
+    new_m <- data.frame(id=input$moult_id, date=as.character(input$moult_date), dls_at_moult=input$moult_new_dls, stringsAsFactors=F)
+    rv$moults <- rbind(rv$moults, new_m)
+    write.csv(rv$moults, MOULT_LOG_FILE, row.names=F)
+    
+    # 2. Automatically update DLS in main Inventory
+    idx <- which(rv$df$id == input$moult_id)
+    if(length(idx) > 0) {
+      rv$df$dls_in[idx] <- input$moult_new_dls
+      write.csv(rv$df, DATA_FILE, row.names=F)
+    }
+    
+    showNotification(paste("Moult recorded for", input$moult_id))
+  })
+  
   observeEvent(input$btn_gen_all, {
     if(nchar(rv$cfg$pages_base_url) < 5) {
       return(showNotification("Please set your GitHub Pages URL in the GitHub Sync tab first!", type="error"))
@@ -161,67 +207,49 @@ server <- function(input, output, session) {
     user_name  <- if(nchar(rv$cfg$git_name) > 0) rv$cfg$git_name else "Joe Ballenger"
     user_email <- if(nchar(rv$cfg$git_email) > 0) rv$cfg$git_email else "joeballenger2005@gmail.com"
     
-    withProgress(message = 'Rendering Caresheets...', value = 0, {
+    withProgress(message = 'Rendering Caresheets & QR Codes...', value = 0, {
       for(i in 1:nrow(rv$df)) {
         tryCatch({
           row <- rv$df[i,]
           
+          # 1. Generate the labeled QR code image
+          generate_qr_png(row$id, row$species, rv$cfg$pages_base_url)
+          
+          # 2. Prepare data for HTML
           moult_b64 <- img_to_b64(row$moult_photo)
           spec_slug <- slug(row$species)
           temp_path <- file.path("species_templates", paste0(spec_slug, ".txt"))
           husbandry <- if(file.exists(temp_path)) paste(readLines(temp_path), collapse="<br>") else "General husbandry applies."
           
-          disp_notes <- if(is.na(row$notes) || row$notes == "") "No specific notes recorded." else row$notes
-          disp_logo  <- if(logo_b64 != "") paste0('<img src="', logo_b64, '" class="logo">') else ""
-          disp_moult <- if(moult_b64 != "") paste0('<img src="', moult_b64, '" class="moult-img">') else "<p><i>No photo available.</i></p>"
-          
-          html_content <- paste0('
-          <html>
-          <head>
-            <title>', row$id, ' - ', row$species, '</title>
-            <style>
-              body { font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 700px; margin: auto; padding: 30px; background-color: #f4f4f4; }
-              .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-              .header { border-bottom: 3px solid #2c3e50; padding-bottom: 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; }
-              .logo { max-height: 80px; }
-              .species-title { margin: 0; color: #2c3e50; }
-              .stats-box { background: #f9f9f9; padding: 20px; border-left: 5px solid #2c3e50; border-radius: 4px; margin: 20px 0; }
-              .moult-img { max-width: 100%; border-radius: 8px; margin-top: 10px; border: 1px solid #ddd; }
-              .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; font-size: 0.85em; color: #777; text-align: center; }
-            </style>
-          </head>
-          <body>
-            <div class="card">
-              <div class="header">
-                <div>
-                  <h1 class="species-title">', row$species, '</h1>
-                  <p><b>Specimen ID:</b> ', row$id, ' | <b>Sex:</b> ', row$sex, ' | <b>DLS:</b> ', row$dls_in, ' in</p>
-                </div>
-                ', disp_logo, '
-              </div>
-              <h3>Care Guide & Requirements</h3>
-              <div class="stats-box">', husbandry, '</div>
-              <h3>Keeper Notes</h3>
-              <p>', disp_notes, '</p>
-              <h3>Latest Moult Photo</h3>
-              ', disp_moult, '
-              <div class="footer">
-                <p><b>', user_name, '</b></p>
-                <p>Contact: <a href="mailto:', user_email, '">', user_email, '</a></p>
-                <p><i>Generated by Spider Farm v9.3</i></p>
-              </div>
-            </div>
-          </body>
-          </html>')
+          # 3. Generate the HTML Caresheet
+          html_content <- paste0(
+            '<html><head><style>
+            body { font-family: sans-serif; margin: 20px; line-height: 1.6; }
+            .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; }
+            .moult-img { max-width: 300px; display: block; margin: 20px auto; border: 5px solid #eee; }
+            .data-box { background: #f9f9f9; padding: 15px; border-radius: 8px; }
+            </style></head><body>',
+            '<div class="header">',
+            if(logo_b64 != "") sprintf('<img src="%s" width="100"><br>', logo_b64) else "",
+            '<h1>Specimen: ', row$id, '</h1>',
+            '<h3>Species: <i>', row$species, '</i></h3></div>',
+            '<div class="data-box">',
+            '<p><b>Sex:</b> ', row$sex, '</p>',
+            '<p><b>Current DLS:</b> ', row$dls_in, ' inches</p>',
+            '<p><b>Notes:</b> ', row$notes, '</p></div>',
+            '<h4>Husbandry Requirements</h4><p>', husbandry, '</p>',
+            if(moult_b64 != "") sprintf('<h4>Latest Photo</h4><img class="moult-img" src="%s">', moult_b64) else "",
+            '<hr><footer style="font-size: 0.8em; text-align: center;">Managed by ', user_name, ' (', user_email, ')</footer>',
+            '</body></html>'
+          )
           
           writeLines(html_content, file.path(CARESHEET_DIR, paste0(row$id, "_", spec_slug, ".html")))
-        }, error = function(e) {
-          message(paste("Error generating sheet for ID", row$id, ":", e$message))
-        })
+          
+        }, error = function(e) { message(paste("Error ID", row$id, ":", e$message)) })
         incProgress(1/nrow(rv$df))
       }
     })
-    showNotification("All caresheets updated.")
+    showNotification("All caresheets and labeled QR codes updated.")
   })
   
   observeEvent(input$btn_save_cfg, {
@@ -234,16 +262,13 @@ server <- function(input, output, session) {
     output$git_log <- renderText({
       tryCatch({
         cfg <- load_config()
-        git_email <- if(nchar(cfg$git_email) > 0) cfg$git_email else "joeballenger2005@gmail.com"
-        git_name  <- if(nchar(cfg$git_name) > 0) cfg$git_name else "Sylopidae"
-        system(sprintf('git config user.email "%s"', git_email))
-        system(sprintf('git config user.name "%s"', git_name))
+        system(sprintf('git config user.email "%s"', cfg$git_email))
+        system(sprintf('git config user.name "%s"', cfg$git_name))
         system("git add .", wait = TRUE)
-        commit_cmd <- sprintf('git commit -m "%s"', input$commit_msg)
-        commit_res <- system(commit_cmd, wait = TRUE, intern = TRUE)
-        push_res <- system("git push origin main", wait = TRUE, intern = TRUE)
-        paste(c(paste("Identity Set As:", git_name), "--- Commit Result ---", commit_res, "--- Push Result ---", push_res), collapse = "\n")
-      }, error = function(e) { paste("Critical Error:", e$message) })
+        system(sprintf('git commit -m "%s"', input$commit_msg), wait = TRUE)
+        res <- system("git push origin main", wait = TRUE, intern = TRUE)
+        paste(res, collapse = "\n")
+      }, error = function(e) { paste("Error:", e$message) })
     })
   })
 }
