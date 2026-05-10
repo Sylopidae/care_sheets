@@ -307,43 +307,52 @@ save_caresheet <- function(row, base_url = "") {
 
 # ── GitHub sync (single-quote fix for Windows CMD) ───────────
 # ── GitHub sync (fixed: setwd() replaces cd /d, exit-code capture) ───
+# ── GitHub sync (system2: calls git directly, no shell quoting) ───
 github_push_sync <- function(repo_path = REPO_PATH,
                              msg = format(Sys.time(), "auto-sync %Y-%m-%d %H:%M:%S")) {
-  msg_clean <- gsub("'", "", msg)
   
-  # Use R's setwd() to enter the repo — eliminates the nested-quote problem
-  # that came from wrapping the path in its own "" inside cmd /c "..."
+  msg_clean <- trimws(gsub('"', '', msg))   # strip only double-quotes; everything else is safe
+  
   old_wd <- setwd(repo_path)
   on.exit(setwd(old_wd), add = TRUE)
   
-  cmd <- paste0(
-    'cmd /c "git add -A ',
-    "&& git commit -m '", msg_clean, "' ",
-    '&& git push 2>&1"'
+  run_git <- function(args) {
+    out    <- system2("git", args = args, stdout = TRUE, stderr = TRUE)
+    status <- attr(out, "status") %||% 0L
+    list(output = paste(out, collapse = "\n"), status = as.integer(status))
+  }
+  
+  # preflight
+  chk <- run_git(c("rev-parse", "--is-inside-work-tree"))
+  if (!grepl("true", chk$output, ignore.case = TRUE))
+    return(list(
+      cmd    = "git rev-parse",
+      output = paste0("ERROR: Not a git repository: ", repo_path,
+                      "\nRun once in a terminal:\n",
+                      "  git init\n  git remote add origin <URL>\n",
+                      "  git push -u origin main --force"),
+      status = "FAILED — not a git repository"
+    ))
+  
+  add    <- run_git(c("add", "-A"))
+  commit <- run_git(c("commit", "-m", msg_clean))
+  push   <- run_git("push")
+  
+  all_out <- paste(
+    "-- git add --\n",    add$output,
+    "\n-- git commit --\n", commit$output,
+    "\n-- git push --\n",   push$output
   )
   
-  # system(intern=TRUE) raises a *warning* (not a return value) when the
-  # exit code is non-zero, so we catch it explicitly to report FAILED correctly
-  exit_code <- 0L
-  result <- tryCatch(
-    withCallingHandlers(
-      system(cmd, intern = TRUE, ignore.stderr = FALSE),
-      warning = function(w) {
-        m <- regmatches(conditionMessage(w),
-                        regexpr("status \\d+", conditionMessage(w)))
-        if (length(m) > 0)
-          exit_code <<- as.integer(sub("status ", "", m))
-        invokeRestart("muffleWarning")
-      }
-    ),
-    error = function(e) paste("ERROR:", conditionMessage(e))
+  # exit 1 on commit just means "nothing to commit" — not a real failure
+  push_failed <- push$status > 0 ||
+    grepl("fatal|error", push$output, ignore.case = TRUE)
+  
+  list(
+    cmd    = paste0("system2(git) in ", repo_path),
+    output = all_out,
+    status = if (push_failed) paste0("FAILED (push exit ", push$status, ")") else "OK"
   )
-  
-  status <- if (exit_code != 0L ||
-                any(grepl("error|fatal", result, ignore.case = TRUE)))
-    paste0("FAILED (exit ", exit_code, ")") else "OK"
-  
-  list(cmd = cmd, output = paste(result, collapse = "\n"), status = status)
 }
 
 
