@@ -44,14 +44,7 @@ CFG <- load_config()
 
 # ── column definitions ───────────────────────────────────────
 SPIDER_COLS <- c(
-  "id", "species", "enclosure", "dob", "sex",
-  "weight_g", "last_fed", "health", "notes",
-  "temp_low_f", "temp_high_f", "humidity_pct",
-  "substrate", "enclosure_type", "enclosure_size",
-  "prey_items", "water_notes", "temperament",
-  "venom_potency", "adult_size_in", "lifespan_yrs",
-  "care_notes", "moult_photo", "timestamp"
-)
+  "id", "species", "sex", "last_fed", "notes", "moult_photo")
 
 # ── data I/O ─────────────────────────────────────────────────
 load_data <- function() {
